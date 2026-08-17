@@ -154,6 +154,11 @@ else
     private async Task SaveCategory()
     {
         _formError = null;
+        if (string.IsNullOrEmpty(_userId))
+        {
+            _formError = "You must be logged in to save a category.";
+            return;
+        }
         try
         {
             if (_editingId == 0)
