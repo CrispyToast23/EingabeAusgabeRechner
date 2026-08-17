@@ -1,0 +1,279 @@
+@page "/transactions"
+@using EingabeAusgabeRechner.Data
+@using EingabeAusgabeRechner.Services
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TransactionService TransactionService
+@inject CategoryService CategoryService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Transactions</PageTitle>
+
+<div class="page-header">
+    <h1 class="page-title">Transactions</h1>
+    <button class="btn btn-primary" @onclick="OpenAddModal">+ Add Transaction</button>
+</div>
+
+<!-- Filter bar -->
+<div class="filter-bar">
+    <input class="input-field" type="text" placeholder="Search description…"
+           @bind="_searchTerm" @bind:event="oninput" @bind:after="ApplyFilters" />
+    <input class="input-field" type="date" @bind="_dateFrom" @bind:after="ApplyFilters" />
+    <input class="input-field" type="date" @bind="_dateTo" @bind:after="ApplyFilters" />
+    <button class="btn btn-secondary" @onclick="ClearFilters">✕ Clear</button>
+</div>
+
+@if (_loading)
+{
+    <div class="loading-spinner">Loading…</div>
+}
+else if (_transactions.Count == 0)
+{
+    <p class="empty-state">No transactions found.</p>
+}
+else
+{
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Category</th>
+                    <th>Type</th>
+                    <th>Amount</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in _transactions)
+                {
+                    <tr>
+                        <td>@t.Date.ToString("dd.MM.yyyy")</td>
+                        <td>@t.Description</td>
+                        <td><span class="badge">@(t.Category?.Name ?? "—")</span></td>
+                        <td>
+                            <span class="type-badge @(t.Type == TransactionType.Income ? "type-income" : "type-expense")">
+                                @t.Type
+                            </span>
+                        </td>
+                        <td class="@(t.Type == TransactionType.Income ? "text-income" : "text-expense") amount-cell">
+                            @(t.Type == TransactionType.Income ? "+" : "-")@t.Amount.ToString("C")
+                        </td>
+                        <td class="action-cell">
+                            <button class="btn-icon" title="Edit" @onclick="() => OpenEditModal(t)">✏</button>
+                            <button class="btn-icon btn-icon-danger" title="Delete" @onclick="() => OpenDeleteTransaction(t.Id)">🗑</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<!-- Add/Edit Modal -->
+@if (_showModal)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h2>@(_editingId == 0 ? "Add Transaction" : "Edit Transaction")</h2>
+                <button class="modal-close" @onclick="CloseModal">✕</button>
+            </div>
+            <EditForm Model="_form" OnValidSubmit="SaveTransaction" FormName="transaction-form">
+                <DataAnnotationsValidator />
+                <div class="form-group">
+                    <label>Description</label>
+                    <InputText class="input-field" @bind-Value="_form.Description" maxlength="200" />
+                    <ValidationMessage For="() => _form.Description" />
+                </div>
+                <div class="form-group">
+                    <label>Amount</label>
+                    <InputNumber class="input-field" @bind-Value="_form.Amount" />
+                    <ValidationMessage For="() => _form.Amount" />
+                </div>
+                <div class="form-group">
+                    <label>Type</label>
+                    <InputSelect class="input-field" @bind-Value="_form.Type">
+                        <option value="@TransactionType.Income">Income</option>
+                        <option value="@TransactionType.Expense">Expense</option>
+                    </InputSelect>
+                </div>
+                <div class="form-group">
+                    <label>Date</label>
+                    <InputDate class="input-field" @bind-Value="_form.Date" />
+                    <ValidationMessage For="() => _form.Date" />
+                </div>
+                <div class="form-group">
+                    <label>Category (optional)</label>
+                    <InputSelect class="input-field" @bind-Value="_form.CategoryId">
+                        <option value="">— None —</option>
+                        @foreach (var c in _categories)
+                        {
+                            <option value="@c.Id">@c.Name</option>
+                        }
+                    </InputSelect>
+                </div>
+                @if (_formError is not null)
+                {
+                    <p class="error-message">@_formError</p>
+                }
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (_confirmDeleteId > 0)
+{
+    <div class="modal-overlay" @onclick="CancelDeleteTransaction">
+        <div class="modal modal-sm" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h2>Delete Transaction</h2>
+                <button class="modal-close" @onclick="CancelDeleteTransaction">✕</button>
+            </div>
+            <p>Are you sure you want to delete this transaction? This cannot be undone.</p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CancelDeleteTransaction">Cancel</button>
+                <button class="btn btn-danger" @onclick="ConfirmDeleteTransaction">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private string _userId = string.Empty;
+    private List<Transaction> _transactions = [];
+    private List<Category> _categories = [];
+    private string? _searchTerm;
+    private DateTime? _dateFrom;
+    private DateTime? _dateTo;
+    private bool _showModal;
+    private int _editingId;
+    private string? _formError;
+    private int _confirmDeleteId;
+
+    private TransactionFormModel _form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        _categories = await CategoryService.GetCategoriesAsync(_userId);
+        _transactions = await TransactionService.GetTransactionsAsync(_userId, _searchTerm, _dateFrom, _dateTo);
+        _loading = false;
+    }
+
+    private async Task ApplyFilters() => await LoadDataAsync();
+
+    private async Task ClearFilters()
+    {
+        _searchTerm = null;
+        _dateFrom = null;
+        _dateTo = null;
+        await LoadDataAsync();
+    }
+
+    private void OpenAddModal()
+    {
+        _editingId = 0;
+        _form = new TransactionFormModel { Date = DateTime.Today };
+        _formError = null;
+        _showModal = true;
+    }
+
+    private void OpenEditModal(Transaction t)
+    {
+        _editingId = t.Id;
+        _form = new TransactionFormModel
+        {
+            Description = t.Description,
+            Amount = t.Amount,
+            Type = t.Type,
+            Date = t.Date,
+            CategoryId = t.CategoryId
+        };
+        _formError = null;
+        _showModal = true;
+    }
+
+    private void CloseModal() => _showModal = false;
+
+    private async Task SaveTransaction()
+    {
+        _formError = null;
+        try
+        {
+            if (_editingId == 0)
+            {
+                var t = new Transaction
+                {
+                    Description = _form.Description,
+                    Amount = _form.Amount,
+                    Type = _form.Type,
+                    Date = _form.Date,
+                    CategoryId = _form.CategoryId == 0 ? null : _form.CategoryId,
+                    UserId = _userId
+                };
+                await TransactionService.CreateTransactionAsync(t);
+            }
+            else
+            {
+                var t = await TransactionService.GetTransactionAsync(_editingId, _userId);
+                if (t is not null)
+                {
+                    t.Description = _form.Description;
+                    t.Amount = _form.Amount;
+                    t.Type = _form.Type;
+                    t.Date = _form.Date;
+                    t.CategoryId = _form.CategoryId == 0 ? null : _form.CategoryId;
+                    await TransactionService.UpdateTransactionAsync(t);
+                }
+            }
+            CloseModal();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+    }
+
+    private void OpenDeleteTransaction(int id) => _confirmDeleteId = id;
+    private void CancelDeleteTransaction() => _confirmDeleteId = 0;
+
+    private async Task ConfirmDeleteTransaction()
+    {
+        await TransactionService.DeleteTransactionAsync(_confirmDeleteId, _userId);
+        _confirmDeleteId = 0;
+        await LoadDataAsync();
+    }
+
+    private sealed class TransactionFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.MaxLength(200)]
+        public string Description { get; set; } = string.Empty;
+
+        [System.ComponentModel.DataAnnotations.Range(0.01, double.MaxValue, ErrorMessage = "Amount must be positive.")]
+        public decimal Amount { get; set; }
+
+        public TransactionType Type { get; set; } = TransactionType.Expense;
+
+        public DateTime Date { get; set; } = DateTime.Today;
+
+        public int? CategoryId { get; set; }
+    }
+}

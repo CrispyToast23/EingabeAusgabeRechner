@@ -1,7 +1,98 @@
-﻿@page "/"
+@page "/"
+@using EingabeAusgabeRechner.Data
+@using EingabeAusgabeRechner.Services
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject TransactionService TransactionService
+@inject AuthenticationStateProvider AuthStateProvider
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Dashboard</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="page-header">
+    <h1 class="page-title">Dashboard</h1>
+</div>
 
-Welcome to your new app.
+@if (_loading)
+{
+    <div class="loading-spinner">Loading…</div>
+}
+else
+{
+    <div class="summary-cards">
+        <div class="card card-income">
+            <div class="card-icon">↑</div>
+            <div>
+                <div class="card-label">Total Income</div>
+                <div class="card-value">@_totalIncome.ToString("C")</div>
+            </div>
+        </div>
+        <div class="card card-expense">
+            <div class="card-icon">↓</div>
+            <div>
+                <div class="card-label">Total Expenses</div>
+                <div class="card-value">@_totalExpense.ToString("C")</div>
+            </div>
+        </div>
+        <div class="card card-balance">
+            <div class="card-icon">⇌</div>
+            <div>
+                <div class="card-label">Balance</div>
+                <div class="card-value @(_balance >= 0 ? "text-income" : "text-expense")">@_balance.ToString("C")</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-section">
+        <h2 class="section-title">Top 5 Transactions</h2>
+        @if (_top5.Count == 0)
+        {
+            <p class="empty-state">No transactions yet. Add some to see the chart.</p>
+        }
+        else
+        {
+            <div class="bar-chart">
+                @foreach (var t in _top5)
+                {
+                    var pct = _maxAmount > 0 ? (double)t.Amount / (double)_maxAmount * 100 : 0;
+                    <div class="bar-row">
+                        <span class="bar-label" title="@t.Description">@TruncateLabel(t.Description)</span>
+                        <div class="bar-track">
+                            <div class="bar-fill @(t.Type == TransactionType.Income ? "bar-income" : "bar-expense")"
+                                 style="width: @pct.ToString("F1")%"></div>
+                        </div>
+                        <span class="bar-amount @(t.Type == TransactionType.Income ? "text-income" : "text-expense")">
+                            @(t.Type == TransactionType.Income ? "+" : "-")@t.Amount.ToString("C")
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private decimal _totalIncome;
+    private decimal _totalExpense;
+    private decimal _balance;
+    private List<Transaction> _top5 = [];
+    private decimal _maxAmount;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return;
+
+        (_totalIncome, _totalExpense) = await TransactionService.GetSummaryAsync(userId);
+        _balance = _totalIncome - _totalExpense;
+        _top5 = await TransactionService.GetTop5Async(userId);
+        _maxAmount = _top5.Count > 0 ? _top5.Max(t => t.Amount) : 0;
+        _loading = false;
+    }
+
+    private static string TruncateLabel(string s) =>
+        s.Length > 22 ? s[..22] + "…" : s;
+}
+
