@@ -59,7 +59,7 @@ else
                         <span class="bar-label" title="@t.Description">@TruncateLabel(t.Description)</span>
                         <div class="bar-track">
                             <div class="bar-fill @(t.Type == TransactionType.Income ? "bar-income" : "bar-expense")"
-                                 style="width: @pct.ToString("F1")%"></div>
+                                 style="width: @pct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)%"></div>
                         </div>
                         <span class="bar-amount @(t.Type == TransactionType.Income ? "text-income" : "text-expense")">
                             @(t.Type == TransactionType.Income ? "+" : "-")@t.Amount.ToString("C")

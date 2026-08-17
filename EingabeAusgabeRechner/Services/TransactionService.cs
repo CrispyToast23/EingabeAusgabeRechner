@@ -32,12 +32,17 @@ public class TransactionService(IDbContextFactory<ApplicationDbContext> dbFactor
     public async Task<List<Transaction>> GetTop5Async(string userId)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        return await db.Transactions
+
+        // Fetch data to client first due to SQLite limitation with decimal ordering
+        var transactions = await db.Transactions
             .Include(t => t.Category)
             .Where(t => t.UserId == userId)
+            .ToListAsync();
+
+        return transactions
             .OrderByDescending(t => t.Amount)
             .Take(5)
-            .ToListAsync();
+            .ToList();
     }
 
     public async Task<Transaction?> GetTransactionAsync(int id, string userId)
@@ -75,11 +80,18 @@ public class TransactionService(IDbContextFactory<ApplicationDbContext> dbFactor
     public async Task<(decimal TotalIncome, decimal TotalExpense)> GetSummaryAsync(string userId)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        var totals = await db.Transactions
+
+        // Fetch data to client first due to SQLite limitation with decimal aggregation
+        var transactions = await db.Transactions
             .Where(t => t.UserId == userId)
+            .Select(t => new { t.Type, t.Amount })
+            .ToListAsync();
+
+        var totals = transactions
             .GroupBy(t => t.Type)
             .Select(g => new { Type = g.Key, Total = g.Sum(t => t.Amount) })
-            .ToListAsync();
+            .ToList();
+
         var income = totals.FirstOrDefault(x => x.Type == TransactionType.Income)?.Total ?? 0m;
         var expense = totals.FirstOrDefault(x => x.Type == TransactionType.Expense)?.Total ?? 0m;
         return (income, expense);
