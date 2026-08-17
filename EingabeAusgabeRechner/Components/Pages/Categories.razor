@@ -1,0 +1,202 @@
+@page "/categories"
+@using EingabeAusgabeRechner.Data
+@using EingabeAusgabeRechner.Services
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject CategoryService CategoryService
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Categories</PageTitle>
+
+<div class="page-header">
+    <h1 class="page-title">Categories</h1>
+    <button class="btn btn-primary" @onclick="OpenAddModal">+ Add Category</button>
+</div>
+
+@if (_loading)
+{
+    <div class="loading-spinner">Loading…</div>
+}
+else if (_categories.Count == 0)
+{
+    <p class="empty-state">No categories yet. Create one to organize your transactions.</p>
+}
+else
+{
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in _categories)
+                {
+                    <tr>
+                        <td>@c.Name</td>
+                        <td class="action-cell">
+                            <button class="btn-icon" title="Edit" @onclick="() => OpenEditModal(c)">✏</button>
+                            <button class="btn-icon btn-icon-danger" title="Delete" @onclick="() => OpenDeleteConfirm(c)">🗑</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<!-- Add/Edit Modal -->
+@if (_showModal)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h2>@(_editingId == 0 ? "Add Category" : "Edit Category")</h2>
+                <button class="modal-close" @onclick="CloseModal">✕</button>
+            </div>
+            <EditForm Model="_form" OnValidSubmit="SaveCategory" FormName="category-form">
+                <DataAnnotationsValidator />
+                <div class="form-group">
+                    <label>Name <span class="char-counter">(@(_form.Name.Length)/50)</span></label>
+                    <InputText class="input-field" @bind-Value="_form.Name" maxlength="50" />
+                    <ValidationMessage For="() => _form.Name" />
+                </div>
+                @if (_formError is not null)
+                {
+                    <p class="error-message">@_formError</p>
+                }
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirmation Modal -->
+@if (_confirmDelete is not null)
+{
+    <div class="modal-overlay" @onclick="CancelDelete">
+        <div class="modal modal-sm" @onclick:stopPropagation>
+            <div class="modal-header">
+                <h2>Delete Category</h2>
+                <button class="modal-close" @onclick="CancelDelete">✕</button>
+            </div>
+            @if (_deleteTransactionCount > 0)
+            {
+                <div class="warning-box">
+                    ⚠️ This category is assigned to <strong>@_deleteTransactionCount transaction(s)</strong>.
+                    Deleting it will remove the category from those transactions, but the transactions themselves will remain.
+                </div>
+            }
+            else
+            {
+                <p>Are you sure you want to delete <strong>@_confirmDelete.Name</strong>?</p>
+            }
+            <div class="modal-actions">
+                <button class="btn btn-secondary" @onclick="CancelDelete">Cancel</button>
+                <button class="btn btn-danger" @onclick="ConfirmDelete">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private string _userId = string.Empty;
+    private List<Category> _categories = [];
+    private bool _showModal;
+    private int _editingId;
+    private string? _formError;
+    private Category? _confirmDelete;
+    private int _deleteTransactionCount;
+
+    private CategoryFormModel _form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        _categories = await CategoryService.GetCategoriesAsync(_userId);
+        _loading = false;
+    }
+
+    private void OpenAddModal()
+    {
+        _editingId = 0;
+        _form = new CategoryFormModel();
+        _formError = null;
+        _showModal = true;
+    }
+
+    private void OpenEditModal(Category c)
+    {
+        _editingId = c.Id;
+        _form = new CategoryFormModel { Name = c.Name };
+        _formError = null;
+        _showModal = true;
+    }
+
+    private void CloseModal() => _showModal = false;
+
+    private async Task SaveCategory()
+    {
+        _formError = null;
+        try
+        {
+            if (_editingId == 0)
+            {
+                var cat = new Category { Name = _form.Name.Trim(), UserId = _userId };
+                await CategoryService.CreateCategoryAsync(cat);
+            }
+            else
+            {
+                var cat = await CategoryService.GetCategoryAsync(_editingId, _userId);
+                if (cat is not null)
+                {
+                    cat.Name = _form.Name.Trim();
+                    await CategoryService.UpdateCategoryAsync(cat);
+                }
+            }
+            CloseModal();
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+    }
+
+    private async Task OpenDeleteConfirm(Category c)
+    {
+        _confirmDelete = c;
+        _deleteTransactionCount = await CategoryService.GetTransactionCountAsync(c.Id, _userId);
+    }
+
+    private void CancelDelete() => _confirmDelete = null;
+
+    private async Task ConfirmDelete()
+    {
+        if (_confirmDelete is null) return;
+        await CategoryService.DeleteCategoryAsync(_confirmDelete.Id, _userId);
+        _confirmDelete = null;
+        await LoadDataAsync();
+    }
+
+    private sealed class CategoryFormModel
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Name is required.")]
+        [System.ComponentModel.DataAnnotations.MaxLength(50, ErrorMessage = "Name may not exceed 50 characters.")]
+        public string Name { get; set; } = string.Empty;
+    }
+}
