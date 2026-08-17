@@ -32,12 +32,14 @@ public class TransactionService(IDbContextFactory<ApplicationDbContext> dbFactor
     public async Task<List<Transaction>> GetTop5Async(string userId)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        return await db.Transactions
+        var transactions = await db.Transactions
             .Include(t => t.Category)
             .Where(t => t.UserId == userId)
+            .ToListAsync();
+        return transactions
             .OrderByDescending(t => t.Amount)
             .Take(5)
-            .ToListAsync();
+            .ToList();
     }
 
     public async Task<Transaction?> GetTransactionAsync(int id, string userId)
