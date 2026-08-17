@@ -75,12 +75,16 @@ public class TransactionService(IDbContextFactory<ApplicationDbContext> dbFactor
     public async Task<(decimal TotalIncome, decimal TotalExpense)> GetSummaryAsync(string userId)
     {
         await using var db = await dbFactory.CreateDbContextAsync();
-        var income = await db.Transactions
+        var incomeAmounts = await db.Transactions
             .Where(t => t.UserId == userId && t.Type == TransactionType.Income)
-            .SumAsync(t => (decimal?)t.Amount) ?? 0;
-        var expense = await db.Transactions
+            .Select(t => t.Amount)
+            .ToListAsync();
+        var expenseAmounts = await db.Transactions
             .Where(t => t.UserId == userId && t.Type == TransactionType.Expense)
-            .SumAsync(t => (decimal?)t.Amount) ?? 0;
+            .Select(t => t.Amount)
+            .ToListAsync();
+        var income = incomeAmounts.Sum();
+        var expense = expenseAmounts.Sum();
         return (income, expense);
     }
 }
