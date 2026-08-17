@@ -205,7 +205,7 @@ else
             Amount = t.Amount,
             Type = t.Type,
             Date = t.Date,
-            CategoryId = t.CategoryId
+            CategoryId = t.CategoryId.HasValue ? t.CategoryId.Value.ToString() : string.Empty
         };
         _formError = null;
         _showModal = true;
@@ -216,6 +216,12 @@ else
     private async Task SaveTransaction()
     {
         _formError = null;
+        if (string.IsNullOrEmpty(_userId))
+        {
+            _formError = "You must be logged in to save a transaction.";
+            return;
+        }
+        int? parsedCategoryId = int.TryParse(_form.CategoryId, out var cid) ? cid : null;
         try
         {
             if (_editingId == 0)
@@ -226,7 +232,7 @@ else
                     Amount = _form.Amount,
                     Type = _form.Type,
                     Date = _form.Date,
-                    CategoryId = _form.CategoryId == 0 ? null : _form.CategoryId,
+                    CategoryId = parsedCategoryId,
                     UserId = _userId
                 };
                 await TransactionService.CreateTransactionAsync(t);
@@ -240,7 +246,7 @@ else
                     t.Amount = _form.Amount;
                     t.Type = _form.Type;
                     t.Date = _form.Date;
-                    t.CategoryId = _form.CategoryId == 0 ? null : _form.CategoryId;
+                    t.CategoryId = parsedCategoryId;
                     await TransactionService.UpdateTransactionAsync(t);
                 }
             }
@@ -276,6 +282,6 @@ else
 
         public DateTime Date { get; set; } = DateTime.Today;
 
-        public int? CategoryId { get; set; }
+        public string CategoryId { get; set; } = string.Empty;
     }
 }
