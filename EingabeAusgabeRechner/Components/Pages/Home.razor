@@ -2,10 +2,10 @@
 @using EingabeAusgabeRechner.Data
 @using EingabeAusgabeRechner.Services
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject TransactionService TransactionService
-@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Dashboard</PageTitle>
 
@@ -72,6 +72,8 @@ else
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> AuthStateTask { get; set; } = default!;
+
     private bool _loading = true;
     private decimal _totalIncome;
     private decimal _totalExpense;
@@ -81,7 +83,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var auth = await AuthStateTask;
         var userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         if (userId is null) return;
 
