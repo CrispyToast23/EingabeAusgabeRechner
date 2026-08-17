@@ -2,10 +2,10 @@
 @using EingabeAusgabeRechner.Data
 @using EingabeAusgabeRechner.Services
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @attribute [Authorize]
 @rendermode InteractiveServer
 @inject CategoryService CategoryService
-@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Categories</PageTitle>
 
@@ -106,6 +106,8 @@ else
 }
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> AuthStateTask { get; set; } = default!;
+
     private bool _loading = true;
     private string _userId = string.Empty;
     private List<Category> _categories = [];
@@ -119,7 +121,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var auth = await AuthStateProvider.GetAuthenticationStateAsync();
+        var auth = await AuthStateTask;
         _userId = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? string.Empty;
         await LoadDataAsync();
     }
